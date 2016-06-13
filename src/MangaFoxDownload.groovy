@@ -2,11 +2,15 @@
 import org.cyberneko.html.parsers.SAXParser
 import java.util.zip.GZIPInputStream
 
-def host = 'url_to_manga'
-def folder = "folder_to_download_to"
+def host = 'http://mangafox.me/manga/berserk/'
+def folder = "/Volumes/Data/Manga/" + "berserk"
+
+//def host= System.console().readLine 'Please enter the MangaFox URL: ';
+//def folder = System.console().readLine 'Please enter the folder path: '
+
 def chapterFolders = false;
 
-def f = new File("../${folder}")
+def f = new File("${folder}")
 f.mkdir();
 
 def parser = new SAXParser()
@@ -21,11 +25,11 @@ def chapters = page.depthFirst().findAll { it.@class == 'tips'}.collect {
     ]
 }
 
-chapters.each { 
-    def chapterName = it.title.replaceAll("[^A-Za-z0-9\\. ]", "");
+chapters.reverse().each { 
+    def chapterName = it.title.replaceAll("[^A-Za-z0-9\\. ]", "").replaceAll("\\b(\\d)\\b", "0\$1");
     
     if(chapterFolders){
-        def c = new File("../${folder}/${chapterName}");
+        def c = new File("${folder}/${chapterName}");
         c.mkdir();
     }
     
@@ -48,27 +52,35 @@ chapters.each {
         page = slurper.parseText(html)
         def image = page.depthFirst().find { it.@id == 'image' }.collect { it.@src }
         if(image.size() > 0){            
+            String pageNumber = it.value.text().length() == 1 ? "0" + it.value : it.value;            
             if(chapterFolders){
-                download("../${folder}/${chapterName}/${it.value}.jpg", image.get(0).toString())
+                download("${folder}/${chapterName}/${pageNumber}.jpg", image.get(0).toString())
             } else {
-                download("../${folder}/${chapterName} - ${it.value}.jpg", image.get(0).toString())
+                download("${folder}/${chapterName} - ${pageNumber}.jpg", image.get(0).toString())
             }
         }        
     }
 }
     
-private String getHtml(String host) {
-    URLConnection connection = new URL(host).openConnection();                        
-    
+private String getHtml(String host) {                            
     String html = "";
     def ins = null;
     
-    //The changed part
-    if (connection.getHeaderField("Content-Encoding")!=null && connection.getHeaderField("Content-Encoding").equals("gzip")){
-        ins = new BufferedReader(new InputStreamReader(new GZIPInputStream(connection.getInputStream())));            
-    } else {
-        ins = new BufferedReader(new InputStreamReader(connection.getInputStream()));            
-    }     
+    while(ins == null){         
+        try {
+            URLConnection connection = new URL(host).openConnection();
+            if (connection.getHeaderField("Content-Encoding")!=null && connection.getHeaderField("Content-Encoding").equals("gzip")){
+                ins = new BufferedReader(new InputStreamReader(new GZIPInputStream(connection.getInputStream())));            
+            } else {
+                ins = new BufferedReader(new InputStreamReader(connection.getInputStream()));            
+            }    
+        } catch(Exception e){
+            println("Unable to open page: ${host}, retrying...");   
+            sleep(10000);
+        }
+    }
+
+      
     //End        
     String inputLine;
     while ((inputLine = ins.readLine()) != null){
@@ -81,13 +93,27 @@ private String getHtml(String host) {
 }
 
 private void download(def path, String address) {
-    def file = new File(path)
-    if(!file.exists()){ 
-        println("Downloading: ${path}")
-        file.withOutputStream { out ->
-            out << new URL(address).openStream()
-        }    
-    } else {
-        println("File exists, skipping: ${path}")
+    boolean success = false; 
+
+    while(!success){
+        def file = new File(path)
+                    
+        if(!file.exists() || file.length() == 0){ 
+            try {
+                println("Downloading: ${path}")
+                file.withOutputStream { out ->
+                    out << new URL(address).openStream()
+                }
+                success = true;     
+            } catch(Exception e){
+                println("Error getting image: ${path}, retrying...");
+                file.delete();
+            }      
+        } else {
+            println("File exists, skipping: ${path}")
+            return;
+        }
+        
+    
     }
 }
